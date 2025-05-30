@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+WRAPPER=dc-runner
+
+rm -f bin/*
+
+for filepath in $(find . -type f -name 'config.sh'); do
+    dir=${filepath%/*}
+    tool_name="${dir#./}"
+
+    ln -sf "../$WRAPPER" "bin/$tool_name"
+
+done

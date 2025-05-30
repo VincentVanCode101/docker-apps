@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Resolve the real path of this script, following symlinks ---
+SOURCE="${BASH_SOURCE[0]}"
+
+# --- little symlink-walker
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# --- The tool is the name this was invoked as ---
+TOOL="$(basename "$0")"
+
+# --- Load that tool’s config ---
+CONFIG="$BIN_DIR/$TOOL/config.sh"
+if [[ ! -f $CONFIG ]]; then
+    echo "ERROR: no config for '$TOOL' (expected $CONFIG)" >&2
+    exit 1
+fi
+source "$CONFIG"
+
+# --- If you asked to build, do just that ---
+if [[ ${1-} == "--build" ]]; then
+    docker build -t "$IMAGE_TAG" "$BIN_DIR/$TOOL"
+    exit 0
+fi
+
+# --- Auto-build if the image doesn’t exist ---
+if ! docker image inspect "$IMAGE_TAG" &>/dev/null; then
+    echo "↻ Building $IMAGE_TAG…" >&2
+    docker build -t "$IMAGE_TAG" "$BIN_DIR/$TOOL"
+fi
+
+# --- Finally run it, always mounting PWD → /workspace ---
+docker run --rm \
+    -v "$(pwd):/workspace" -w /workspace \
+    $DOCKER_EXTRA_OPTS \
+    "$IMAGE_TAG" "$@"

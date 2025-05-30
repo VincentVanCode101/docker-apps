@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1) project root = where this script lives
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 2) add your wrappers dir to PATH
+export PATH="$PROJECT_ROOT/bin:$PATH"
+
+# 3) build each tool
+for cfg in "$PROJECT_ROOT"/*/config.sh; do
+    TOOL="$(basename "$(dirname "$cfg")")"
+    echo "-> Building $TOOL…"
+    # now "TOOL --build" resolves to bin/TOOL → dc-runner
+    "$TOOL" --build
+done
+
+echo "All images built!"

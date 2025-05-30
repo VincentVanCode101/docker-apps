@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# optionally accept a tar.gz path
+if [[ $# -gt 0 ]]; then
+    archive="$1"
+else
+    # pick the most recent *.tar.gz in the repo
+    archive=$(ls -1 "$HOME/docker-apps"/docker-apps-*.tar.gz 2>/dev/null | sort | tail -n1)
+fi
+
+if [[ -z "${archive-}" || ! -f "$archive" ]]; then
+    echo "ERROR: no archive found. Please pass the path to a .tar.gz" >&2
+    exit 1
+fi
+
+echo "Loading images from $archive"
+docker load -i "$archive"
+echo "Done: Dockerized CLI/GUI apps are back!"

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# collect all IMAGE_TAGs from configs
+images=()
+for cfg in "$HOME/docker-apps"/*/config.sh; do
+    source "$cfg"
+    images+=("$IMAGE_TAG")
+done
+
+# name with date
+out="$HOME/docker-apps/docker-apps-$(date +%Y%m%d).tar"
+echo "Saving ${#images[@]} images → $out"
+docker save "${images[@]}" -o "$out"
+
+gzip -f "$out"
+echo "-> ${out}.gz"
