@@ -24,6 +24,8 @@ if [[ ! -f $CONFIG ]]; then
 fi
 source "$CONFIG"
 
+DOCKER_EXTRA_OPTS="${DOCKER_EXTRA_OPTS:-}"
+
 # --- If you asked to build, do just that ---
 if [[ ${1-} == "--build" ]]; then
     docker build -t "$IMAGE_TAG" "$BIN_DIR/$TOOL"
