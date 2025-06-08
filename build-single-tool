@@ -15,5 +15,5 @@ if [[ ! -f "$CONFIG" ]]; then
     exit 1
 fi
 
-echo "Building $TOOL…"
+echo "Building $TOOL..."
 "$TOOL" --build
