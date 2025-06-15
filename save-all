@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# collect all IMAGE_TAGs from configs
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 images=()
-for cfg in "$HOME/projects/docker-apps"/*/config.sh; do
+for cfg in "$PROJECT_ROOT"/*/config.sh; do
     source "$cfg"
     images+=("$IMAGE_TAG")
 done
 
-# name with date
-out="$HOME/projects/docker-apps/docker-apps-$(date +%Y%m%d).tar"
+out="$PROJECT_ROOT/docker-apps-$(date +%Y%m%d).tar"
 echo "Saving ${#images[@]} images → $out"
 docker save "${images[@]}" -o "$out"
 

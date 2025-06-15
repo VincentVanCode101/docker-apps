@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-WRAPPER=dc-runner
+set -euo pipefail
 
-rm -f bin/*
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WRAPPER="$PROJECT_ROOT/dc-runner"
+BIN_DIR="$PROJECT_ROOT/bin"
 
-for filepath in $(find . -type f -name 'config.sh'); do
-    dir=${filepath%/*}
-    tool_name="${dir#./}"
+rm -f "$BIN_DIR"/*
 
-    ln -sf "../$WRAPPER" "bin/$tool_name"
-
+for filepath in $(find "$PROJECT_ROOT" -type f -name 'config.sh'); do
+    dir=$(dirname "$filepath")
+    tool_name="${dir##*/}"
+    ln -sf "../dc-runner" "$BIN_DIR/$tool_name"
 done

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# optionally accept a tar.gz path
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [[ $# -gt 0 ]]; then
     archive="$1"
 else
-    # pick the most recent *.tar.gz in the repo
-    archive=$(ls -1 "$HOME/projects/docker-apps"/docker-apps-*.tar.gz 2>/dev/null | sort | tail -n1)
+    archive=$(ls -1 "$PROJECT_ROOT"/docker-apps-*.tar.gz 2>/dev/null | sort | tail -n1)
 fi
 
 if [[ -z "${archive-}" || ! -f "$archive" ]]; then
