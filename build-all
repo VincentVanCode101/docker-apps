@@ -10,7 +10,7 @@ export PATH="$PROJECT_ROOT/bin:$PATH"
 # 3) build each tool
 for cfg in "$PROJECT_ROOT"/*/config.sh; do
     TOOL="$(basename "$(dirname "$cfg")")"
-    echo "-> Building $TOOL…"
+    echo "-> Building $TOOL ..."
     # now "TOOL --build" resolves to bin/TOOL → dc-runner
     "$TOOL" --build
 done
