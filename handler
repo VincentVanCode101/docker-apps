@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+###############################################################################
+# paths
+###############################################################################
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+APP_DIR="$PROJECT_ROOT/apps"
+ARCHIVE_DIR="$PROJECT_ROOT/archive"
+BIN_DIR="$PROJECT_ROOT/bin"
+SYMLINK_WRAPPER_NAME="a-symlink-to-rule-them-all"
+ARCHIVE_PREFIX="docker-apps"
+
+###############################################################################
+# usage helper
+###############################################################################
+usage() {
+    cat >&2 <<EOF
+Usage:
+  $0 --list-apps
+  $0 save --all
+  $0 save --single-tool <toolname>
+  $0 extract --all
+  $0 extract --single-tar <path/to/tar.gz>
+  $0 build --all
+  $0 build --single-tool <toolname>
+  $0 delete <toolname>
+EOF
+    exit 1
+}
+
+###############################################################################
+# (re)create one-liner wrappers in bin/
+###############################################################################
+refresh_wrappers() {
+    mkdir -p "$BIN_DIR"
+    rm -f "$BIN_DIR"/*
+    while IFS= read -r -d '' cfg; do
+        tool_name="$(basename "$(dirname "$cfg")")"
+        ln -sf "../$SYMLINK_WRAPPER_NAME" "$BIN_DIR/$tool_name"
+    done < <(find "$APP_DIR" -type f -name 'config.sh' -print0)
+}
+
+###############################################################################
+# helper: load IMAGE_TAG from a config.sh safely (sub-shell – no env leak)
+###############################################################################
+get_image_tag() { (
+    source "$1" >/dev/null 2>&1
+    echo "${IMAGE_TAG:-}"
+); }
+
+###############################################################################
+# 1 - list-apps
+###############################################################################
+list_apps() {
+    local h_tool="Tool" h_status="Status" h_img="Docker image"
+    local tool_w=${#h_tool} status_w=${#h_status} img_w=${#h_img}
+    local -a tools statuses images
+
+    shopt -s nullglob
+    for dir in "$APP_DIR"/*/; do
+        local tool cfg status image
+        tool="$(basename "$dir")"
+        cfg="${dir}config.sh"
+        status="missing config.sh"
+        image="–"
+
+        if [[ -f $cfg ]]; then
+            local tag
+            tag="$(get_image_tag "$cfg")"
+            if [[ -z $tag ]]; then
+                status="no valid config (needs IMAGE_TAG var)"
+            elif docker image inspect "$tag" &>/dev/null; then
+                status="installed"
+                image="$tag"
+            else
+                status="needs build"
+            fi
+        fi
+
+        tools+=("$tool")
+        statuses+=("$status")
+        images+=("$image")
+        ((${#tool} > tool_w)) && tool_w=${#tool}
+        ((${#status} > status_w)) && status_w=${#status}
+        ((${#image} > img_w)) && img_w=${#image}
+    done
+
+    printf "%-*s  %-*s  %-*s\n" \
+        "$tool_w" "$h_tool" "$status_w" "$h_status" "$img_w" "$h_img"
+    printf "%-*s  %-*s  %-*s\n" \
+        "$tool_w" "$(printf -- '-%.0s' $(seq 1 $tool_w))" \
+        "$status_w" "$(printf -- '-%.0s' $(seq 1 $status_w))" \
+        "$img_w" "$(printf -- '-%.0s' $(seq 1 $img_w))"
+
+    for i in "${!tools[@]}"; do
+        printf "%-*s  %-*s  %-*s\n" \
+            "$tool_w" "${tools[$i]}" \
+            "$status_w" "${statuses[$i]}" \
+            "$img_w" "${images[$i]}"
+    done
+}
+
+###############################################################################
+# 2 - save all images to tar.gz
+###############################################################################
+save_all() {
+    local -a images
+    while IFS= read -r -d '' cfg; do
+        local tag
+        tag="$(get_image_tag "$cfg")"
+        [[ -n $tag ]] && images+=("$tag")
+    done < <(find "$APP_DIR" -maxdepth 2 -name config.sh -print0)
+
+    mkdir -p "$ARCHIVE_DIR"
+    local out="$ARCHIVE_DIR/${ARCHIVE_PREFIX}-$(date +%Y%m%d).tar"
+    echo "Saving ${#images[@]} images → $out"
+    docker save "${images[@]}" -o "$out"
+    gzip -f "$out"
+    echo "→ ${out}.gz"
+}
+
+save_single() {
+    local tool="$1"
+    local cfg="$APP_DIR/$tool/config.sh"
+    [[ -f $cfg ]] || {
+        echo "ERROR: no config for '$tool'"
+        exit 1
+    }
+    local tag
+    tag="$(get_image_tag "$cfg")"
+    [[ -z $tag ]] && {
+        echo "ERROR: IMAGE_TAG missing in $cfg"
+        exit 1
+    }
+
+    mkdir -p "$ARCHIVE_DIR"
+    local out="$ARCHIVE_DIR/${tool}-$(date +%Y%m%d).tar"
+    echo "Saving $tool → $out"
+    docker save "$tag" -o "$out"
+    gzip -f "$out"
+    echo "→ ${out}.gz"
+}
+
+###############################################################################
+# 3 - extract images from tar.gz (arg optional)
+###############################################################################
+extract_all() {
+    local tar
+
+    # -> latest “all-tools” tar
+    tar=$(ls -1 "$ARCHIVE_DIR"/${ARCHIVE_PREFIX}-*.tar.gz 2>/dev/null | sort | tail -n1 || true)
+    [[ -n $tar ]] && {
+        echo "Loading $tar"
+        docker load -i "$tar"
+    }
+
+    # -> every per-tool tar in archive dir
+    for tar in "$ARCHIVE_DIR"/*.tar.gz; do
+        [[ $tar == *"${ARCHIVE_PREFIX}-"* ]] && continue # skip the big one
+        [[ -f $tar ]] || continue
+        echo "Loading $tar"
+        docker load -i "$tar"
+    done
+}
+
+extract_single() {
+    local tar="$1"
+    [[ -f $tar ]] || {
+        echo "ERROR: $tar not found"
+        exit 1
+    }
+    echo "Loading $tar"
+    docker load -i "$tar"
+}
+
+###############################################################################
+# 4 - build helpers
+###############################################################################
+build_single() {
+    local tool="$1"
+    local cfg="$APP_DIR/$tool/config.sh"
+    [[ -f $cfg ]] || {
+        echo "ERROR: no config for '$tool'" >&2
+        echo "ERROR: no config for '${tool-?}' (expected $cfg)" >&2
+        exit 1
+    }
+
+    local tag
+    tag="$(get_image_tag "$cfg")"
+    if [[ -z $tag ]]; then
+        echo "SKIP  $tool → config has no IMAGE_TAG" >&2
+        return
+    fi
+
+    echo "---------------------------------"
+    echo ""
+    echo "-> Building $tool"
+    echo ""
+    refresh_wrappers
+    "$tool" --build
+    echo ""
+    echo "-> Build image: $tag"
+}
+
+build_all() {
+    refresh_wrappers
+    for cfg in "$APP_DIR"/*/config.sh; do
+        local tool
+        tool="$(basename "$(dirname "$cfg")")"
+        build_single "$tool"
+    done
+}
+
+###############################################################################
+# 5 - delete image
+###############################################################################
+delete_tool() {
+    local tool="$1" cfg="$APP_DIR/$tool/config.sh"
+    [[ -f $cfg ]] || {
+        echo "ERROR: no config for '$tool'" >&2
+        exit 1
+    }
+    local tag
+    tag="$(get_image_tag "$cfg")"
+    [[ -z $tag ]] && {
+        echo "ERROR: IMAGE_TAG empty in config" >&2
+        exit 1
+    }
+
+    if docker image inspect "$tag" &>/dev/null; then
+        docker rmi "$tag"
+        echo "Removed image $tag"
+    else
+        echo "Nothing to delete: image $tag not present."
+    fi
+}
+
+###############################################################################
+# --- dispatch ----------------------------------------------------------------
+###############################################################################
+(($#)) || usage
+
+case "$1" in
+--list-apps) list_apps ;;
+
+save)
+    shift
+    case "${1-}" in
+    --all) save_all ;;
+    --single-tool)
+        shift
+        [[ $# -eq 1 ]] || usage
+        save_single "$1"
+        ;;
+    *) usage ;;
+    esac
+    ;;
+
+extract)
+    shift
+    case "${1-}" in
+    --all) extract_all ;;
+    --single-tar)
+        shift
+        [[ $# -eq 1 ]] || usage
+        extract_single "$1"
+        ;;
+    *) usage ;;
+    esac
+    ;;
+build)
+    shift
+    case "${1-}" in
+    --all) build_all ;;
+    --single-tool)
+        shift
+        [[ $# -eq 1 ]] || usage
+        build_single "$1"
+        ;;
+    *) usage ;;
+    esac
+    ;;
+delete)
+    shift
+    [[ $# -eq 1 ]] || usage
+    delete_tool "$1"
+    ;;
+*) usage ;;
+esac
