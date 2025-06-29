@@ -24,7 +24,8 @@ Usage:
   $0 extract --single-tar <path/to/tar.gz>
   $0 build --all
   $0 build --single-tool <toolname>
-  $0 delete <toolname>
+  $0 delete --all
+  $0 delete --single-tool <toolname>
 EOF
     exit 1
 }
@@ -236,6 +237,25 @@ delete_tool() {
     fi
 }
 
+delete_all() {
+    for cfg in "$APP_DIR"/*/config.sh; do
+        local tool tag
+        tool="$(basename "$(dirname "$cfg")")"
+        tag="$(get_image_tag "$cfg")"
+
+        if [[ -z $tag ]]; then
+            echo "SKIP  $tool → no IMAGE_TAG"
+            continue
+        fi
+
+        if docker image inspect "$tag" &>/dev/null; then
+            docker rmi "$tag"
+            echo "Removed $tool image: $tag"
+        else
+            echo "SKIP  $tool → image $tag not found"
+        fi
+    done
+}
 ###############################################################################
 # --- dispatch ----------------------------------------------------------------
 ###############################################################################
@@ -283,8 +303,16 @@ build)
     ;;
 delete)
     shift
-    [[ $# -eq 1 ]] || usage
-    delete_tool "$1"
+    case "${1-}" in
+    --all) delete_all ;;
+    --single-tool)
+        shift
+        [[ $# -eq 1 ]] || usage
+        delete_single "$1"
+        ;;
+    *) usage ;;
+    esac
     ;;
 *) usage ;;
+
 esac
